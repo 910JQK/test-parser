@@ -3,7 +3,7 @@
 
 import re
 import sys
-from define import TOKEN, SYNTAX, RULE
+from definition import TOKEN, SYNTAX, RULE
 from scanner import get_tokens, process_file
 
 
