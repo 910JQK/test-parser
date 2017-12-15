@@ -431,18 +431,18 @@ class RULE:
         #         if(Expr) Stmts Else | while(Expr) Stmt |
         #         do Stmt while(Expr); | for(Assign; Expr; Assign) Stmt |
         #         break; | Block
-        def check_bool_expr(cond_expr):
+        def check_bool_expr(cond_type, cond_expr):
             if cond_expr.properties['data_type'] not in ['bool', 'int']:
-                return Check.Error('if: bool expression required')
+                return Check.Error('%s: bool expression required' % cond_type)
             else:
                 return None
         deriv_tuple = node.deriv_tuple
         err = None
         if deriv_tuple[0] in ['if', 'while']:
-            err = check_bool_expr(node.children[2])
+            err = check_bool_expr(deriv_tuple[0], node.children[2])
         elif deriv_tuple[0] == 'do':
-            err = check_bool_expr(node.children[4])
+            err = check_bool_expr(deriv_tuple[0], node.children[4])
         elif deriv_tuple[0] == 'for':
-            err = check_bool_expr(node.children[4])
+            err = check_bool_expr(deriv_tuple[0], node.children[4])
         return err if err is not None else Check.Pass()
 
