@@ -1,0 +1,12 @@
+{
+	int a; int i; double b;
+	double foo; double bar; int v; int c; int d;
+	a = 2;
+	b = 2.2;
+	if(a == 2) {
+	     for(i=0; i<10; i=i+1) {
+	     	      b = b*2;
+	     }
+	     foo = 3*bar || foo*!false+bar+(1+v < -(b+c*d)*1.1)/6;
+	}
+}
