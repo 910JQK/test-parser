@@ -39,7 +39,7 @@ class SyntaxTreeNode:
     def __init__(self, syntax_item):
         self.syntax_item = syntax_item
         self.children = []
-        self.properties = {'data_type': None}
+        self.properties = {'data_type': None, 'arg': None}
 
     def get_type(self):
         return get_syntax_item_type(self.syntax_item)

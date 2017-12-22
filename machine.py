@@ -10,17 +10,21 @@ CALCULATION = {
     'ge': lambda x,y: (x >= y),
     'le': lambda x,y: (x <= y),
     'eq': lambda x,y: (x == y),
+    'neq': lambda x,y: (x != y),
     # Logic
     'and': lambda x,y: (x and y),
     'or': lambda x,y: (x or y),
-    'not': lambda x,y: (not x)
+    'not': lambda x,y: (not x),
+    # Do Nothing
+    'mov': lambda x,y: x
 }
 
 
 OPERATION = [
-    'read', 'write',
+    'read', 'print',
     'label', 'goto', 'if_goto'
 ]
+
 
 class RuntimeError(Exception):
     def __init__(self, obj, msg):
@@ -48,30 +52,32 @@ class Argument:
 
     def __str__(self):
         if self.arg_type == 'data':
-            return '[Data %s %s]' % (self.data_type, self.data)
+            return str(self.data)
         else:
-            return '[Ident %s %s]' % (self.data_type, self.ident)
+            return '%s::%s' % (self.data_type, self.ident)
 
     def val(self, var_dict):
         if self.arg_type == 'data':
-            # Todo: Error Handling for Invalid Input
-            if self.data_type == 'int':
-                return self.data & 0xffffffff
-            elif self.data_type == 'double':
-                return self.data * 1.0
-            elif self.data_type == 'bool':
-                return bool(self.data)
-            else:
-                raise RuntimeError(
-                    self, '%s: Invalid Data Type' % self.data_type
-                )
+            data = self.data
         else:
             if var_dict.get(self.ident):                
-                return var_dict[self.ident]
+                data = var_dict[self.ident]
             else:
                 raise RuntimeError(
                     self, '%s: Variable Not Found' % self.ident
                 )
+        # Todo: Error Handling for Invalid Input
+        if self.data_type == 'int':
+            return int(data) & 0xffffffff
+        elif self.data_type == 'double':
+            return float(data)
+        elif self.data_type == 'bool':
+            return bool(data)
+        else:
+            raise RuntimeError(
+                self, '%s: Invalid Data Type' % self.data_type
+            )
+        return data
 
 
 class Instruction:
@@ -87,7 +93,7 @@ class Instruction:
         elif cmd in OPERATION:
             self.inst_type = 'operation'
         else:
-            raise RuntimeError(inst, 'Invalid Instruction')
+            raise RuntimeError(self, 'Invalid Instruction')
         # Todo: Other Checks for Specified Command
 
     def __str__(self):
@@ -139,7 +145,7 @@ class Machine:
                 ident = arg1.ident
                 var_dict[arg1.ident] = input()
                 _ = arg1.val(var_dict)
-            elif cmd == 'write':
+            elif cmd == 'print':
                 print(arg1.val(var_dict))
             elif cmd == 'label':
                 pass

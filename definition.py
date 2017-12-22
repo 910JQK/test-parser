@@ -28,7 +28,7 @@ TOKEN = [
     ),
     (
         'key',
-        re.compile('class|null|this|extends|return|new|NewArray|Print|ReadInteger|ReadLine')
+        re.compile('class|null|this|extends|return|new|NewArray|Print|read|print')
     ),
     (
         'double_value',
@@ -109,6 +109,8 @@ SYNTAX = {
         'empty': False,
         'derivations': [
             ('ident', ('Assign', ';')),
+            ('read', ('read', 'ident')),
+            ('print', ('print', 'ident')),
             ('if', ('if', '(', 'Expr', ')', 'Stmt', 'Else')),
             ('while', ('while', '(', 'Expr', ')', 'Stmt')),
             ('do', ('do', 'Stmt', 'while', '(', 'Expr', ')', ';')),
@@ -310,6 +312,7 @@ class RULE:
         ident = node.children[0].token.string
         if symbols.get(ident):
             node.properties['data_type'] = symbols[ident]
+            node.properties['ident'] = ident
             return Check.Pass()
         else:
             return Check.Error('Variable %s not defined' % ident)
@@ -334,6 +337,7 @@ class RULE:
         # ParExpr -> (Expr)
         expr = node.children[1]
         node.properties['data_type'] = expr.properties['data_type']
+        node.properties['include_par'] = True
         return Check.Pass()
 
     def Unary(symbols, node):
@@ -354,6 +358,8 @@ class RULE:
             else: # int or bool
                 data_type = 'int'
         node.properties['data_type'] = data_type
+        if oprand.properties.get('include_par'):
+            node.properties['include_par'] = True
         return Check.Pass()
 
     def SetNumberType(node, item, right):

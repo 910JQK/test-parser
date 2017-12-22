@@ -11,10 +11,10 @@ insts = [
     I('read', Int('t1')),
     I('read', Int('t2')),
     I('plus', Int('t3'), Int('t1'), Int('t2')),
-    I('goto', 'L'),
+    I('if_goto', Int('t1'), 'L'),
     I('mul', Int('t3'), Int('t3'), IntVal(3)),
     I('label', 'L'),
-    I('write', Int('t3'))
+    I('print', Int('t3'))
 ]
 
 def main():
