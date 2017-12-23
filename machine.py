@@ -1,4 +1,4 @@
-import sys
+from common import e_print
 
 
 CALCULATION = {
@@ -132,7 +132,7 @@ class Machine:
         var_dict = self.var_dict
         while i < len(instructions):
             inst = instructions[i]
-            #print(inst, file=sys.stderr)
+            e_print('[Run] %d: %s' % (i, inst))
             inst_type = inst.inst_type
             cmd = inst.cmd
             arg1 = inst.arg1

@@ -4,6 +4,7 @@
 import sys
 from syntax import get_syntax_tree
 from machine import Instruction, Argument
+from common import DEBUG, e_print
 
 
 LABEL_PREFIX = 'L'
@@ -130,7 +131,7 @@ def translate(syntax_tree_root):
                 initial_code = children_codes[2]
                 condition_node = node.children[4]
                 condition_code = children_codes[4]
-                condition_arg = condition_code.properties['arg']
+                condition_arg = condition_node.properties['arg']
                 increment_code = children_codes[6]
                 stmt_code = children_codes[8]
                 label_go_back = get_label()
@@ -298,7 +299,16 @@ def translate(syntax_tree_root):
         def ExprRight(*args):
             # ExprRight -> "" | || Join ExprRight
             return Produce.HandleCalc({'||':'or'}, *args, r=True)
-    return synthesis_code(syntax_tree_root)
+    if DEBUG:
+        code = synthesis_code(syntax_tree_root)
+        e_print('Translated Code:')
+        count = 0
+        for instruction in code:
+            e_print('%d: %s' % (count, instruction))
+            count += 1
+        return code
+    else:
+        return synthesis_code(syntax_tree_root)
 
 
 def print_code(code):

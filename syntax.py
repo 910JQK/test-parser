@@ -5,10 +5,7 @@ import re
 import sys
 from definition import TOKEN, SYNTAX, RULE
 from scanner import get_tokens
-
-
-def e_print(*args, **kwargs):
-    print(*args, **kwargs, file=sys.stderr)
+from common import e_print
 
 
 class InvalidSyntaxException(Exception):
@@ -121,15 +118,15 @@ def get_syntax_tree(code):
                 else:
                     if node.parent:
                         set_properties(node.parent)
-        e_print('(Debug) -- Processing Token ' + str(token))
+        e_print('-- Processing Token ' + str(token))
         current_node = syntax_stack.pop()
         def push_children(deriv_tuple):
             for child in current_node.produce_children_reversed(deriv_tuple):
                 syntax_stack.append(child)
-                e_print('(Debug) Push [%s]' % child.syntax_item)
+                e_print('Push [%s]' % child.syntax_item)
         if current_node.get_type() == 'non-terminal':
             e_print(
-                '(Debug) Try to expand [%s]'
+                'Try to expand [%s]'
                 % current_node.syntax_item
             )
             syntax = SYNTAX[current_node.syntax_item]
@@ -148,26 +145,26 @@ def get_syntax_tree(code):
                 if expanded:
                     push_children(deriv_tuple)
                     current_node.deriv_tuple = deriv_tuple
-                    #e_print('(Debug) derive_tuple=%s' % str(deriv_tuple))
+                    #e_print('derive_tuple=%s' % str(deriv_tuple))
                     break
             if not expanded:
                 if syntax['empty']:
-                    e_print('(Debug) Expanded by ""')
+                    e_print('Expanded by ""')
                     current_node.set_empty()
                     set_properties(current_node)
                     process_token(token)
                 else:
                     raise InvalidSyntaxException(token.coor)
             else:
-                e_print('(Debug) Expanded by %s' % str(deriv_tuple))
+                e_print('Expanded by %s' % str(deriv_tuple))
                 process_token(token)
         else:
             e_print(
-                '(Debug) Try to match [%s]'
+                'Try to match [%s]'
                 % current_node.syntax_item
             )
             if(current_node.match_token(token)):
-                e_print('(Debug) Matched %s' % token.string)
+                e_print('Matched %s' % token.string)
                 set_properties(current_node)
             else:
                 raise InvalidSyntaxException(token.coor)
