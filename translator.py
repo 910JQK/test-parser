@@ -148,8 +148,10 @@ def translate(syntax_tree_root):
                     Instruction('label', label_tail)
                 ]
             elif rule == 'break':
+                # to be handled in enable_jump()
                 return ['break']
             elif rule == 'continue':
+                # to be handled in enable_jump()
                 return ['continue']
             elif rule == 'read':
                 # read ident;                

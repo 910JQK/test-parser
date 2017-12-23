@@ -1,10 +1,10 @@
 {
 	int i; int j; int n;
-	i = 0;
-	while(i < 10) {
-		i = i + 1;
+	j = 0;
+	while(j < 10) {
+		j = j + 1;
 	}
-	print i;
+	print j;
 
 	n = 1;
 	for(i=0; i<10; i=i+1) {
@@ -13,4 +13,5 @@
 		      break;
 	}
 	print n;
+	print (j+1)*(n-2);
 }
