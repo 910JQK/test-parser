@@ -28,7 +28,7 @@ TOKEN = [
     ),
     (
         'key',
-        re.compile('class|null|this|extends|return|new|NewArray|Print|read|print')
+        re.compile('class|null|this|extends|return|new|print|read')
     ),
     (
         'double_value',
@@ -97,20 +97,21 @@ SYNTAX = {
         'empty': True,
         'derivations': [
             ('ident', ('Stmt', 'Stmts')),
+            ('key', ('Stmt', 'Stmts')),
             ('cond_key', ('Stmt', 'Stmts')),
             ('{', ('Stmt', 'Stmts'))
         ]
     },
-    # Stmt -> Assign; |
-    #         if(Expr) Stmts Else | while(Expr) Stmt |
+    # Stmt -> Assign; | read ident; | print expr;
+    #         if(Expr) Stmt Else | while(Expr) Stmt |
     #         do Stmt while(Expr); | for(Assign; Expr; Assign) Stmt |
-    #         break; | Block
+    #         break; | continue; | Block
     'Stmt': {
         'empty': False,
         'derivations': [
             ('ident', ('Assign', ';')),
-            ('read', ('read', 'ident')),
-            ('print', ('print', 'ident')),
+            ('read', ('read', 'ident', ';')),
+            ('print', ('print', 'Expr', ';')),
             ('if', ('if', '(', 'Expr', ')', 'Stmt', 'Else')),
             ('while', ('while', '(', 'Expr', ')', 'Stmt')),
             ('do', ('do', 'Stmt', 'while', '(', 'Expr', ')', ';')),
@@ -118,21 +119,15 @@ SYNTAX = {
              ('for', '(', 'Assign', ';', 'Expr', ';', 'Assign', ')', 'Stmt')
             ),
             ('break', ('break', ';')),
+            ('continue', ('continue', ';')),
             ('{', ('Block',))
         ]
     },
-    # Assign -> Var = Expr AssignRight
+    # Assign -> Var = Expr
     'Assign': {
         'empty': False,
         'derivations': [
-            ('ANY', ('Var', '=', 'Expr', 'AssignRight'))
-        ]
-    },
-    # AssignRight -> "" | = Expr
-    'AssignRight': {
-        'empty': True,
-        'derivations': [
-            ('=', ('=', 'Expr'))
+            ('ANY', ('Var', '=', 'Expr'))
         ]
     },
     # Else -> "" | else Stmt
@@ -312,7 +307,7 @@ class RULE:
         ident = node.children[0].token.string
         if symbols.get(ident):
             node.properties['data_type'] = symbols[ident]
-            node.properties['ident'] = ident
+            node.properties['ident'] = ident # todo: array
             return Check.Pass()
         else:
             return Check.Error('Variable %s not defined' % ident)

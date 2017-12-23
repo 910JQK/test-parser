@@ -3,16 +3,22 @@
 
 import sys
 from syntax import get_syntax_tree
-from machine import *
+from machine import Instruction, Argument
 
 
+LABEL_PREFIX = 'L'
 TEMP_IDENT_PREFIX = '_t'
 
 
 def translate(syntax_tree_root):
     max_ident_index = -1
+    max_label_index = -1
     released_idents_list = []
     released_idents = {}
+    def get_label():
+        nonlocal max_label_index
+        max_label_index += 1
+        return LABEL_PREFIX + str(max_label_index)
     def get_ident():
         nonlocal max_ident_index
         if released_idents_list:
@@ -56,7 +62,118 @@ def translate(syntax_tree_root):
         else:
             return expand_code_list(children_codes)
     class Produce():
-        # Todo: Conditional Clauses
+        def Stmt(node, children_codes):
+            # Stmt -> Assign; | read ident; | print Expr;
+            #         if(Expr) Stmt Else | while(Expr) Stmt |
+            #         do Stmt while(Expr); | for(Assign; Expr; Assign) Stmt |
+            #         break; | continue; | Block
+            def enable_jump(code, continue_label, break_label):
+                for i in range(0, len(code)):
+                    if code[i] == 'continue':
+                        code[i] = Instruction('goto', continue_label)
+                    elif code[i] == 'break':
+                        code[i] = Instruction('goto', break_label)
+            rule = node.deriv_tuple[0]
+            if rule == 'if':
+                # if(Expr) Stmt Else
+                expr_node = node.children[2]
+                expr_code = children_codes[2]
+                expr_arg = expr_node.properties['arg']
+                stmt_code = children_codes[4]
+                else_code = children_codes[5]
+                label_pre_else = get_label()
+                label_post_else = get_label()
+                return [
+                    *expr_code,
+                    Instruction('goto_if_false', expr_arg, label_pre_else),
+                    *stmt_code,
+                    Instruction('goto', label_post_else),
+                    Instruction('label', label_pre_else),
+                    *else_code,
+                    Instruction('label', label_post_else)
+                ]
+            elif rule == 'while':
+                # while(Expr) Stmt
+                expr_node = node.children[2]
+                expr_code = children_codes[2]
+                expr_arg = expr_node.properties['arg']
+                stmt_code = children_codes[4]
+                label_go_back = get_label()
+                label_tail = get_label()
+                enable_jump(stmt_code, label_go_back, label_tail)
+                return [
+                    Instruction('label', label_go_back),
+                    *expr_code,
+                    Instruction('goto_if_false', expr_arg, label_tail),
+                    *stmt_code,
+                    Instruction('goto', label_go_back),
+                    Instruction('label', label_tail)
+                ]
+            elif rule == 'do':
+                # do Stmt while(Expr);
+                expr_node = node.children[4]
+                expr_code = children_codes[4]
+                expr_arg = expr_node.properties['arg']
+                stmt_code = children_codes[1]
+                label_go_back = get_label()
+                label_tail = get_label()
+                enable_jump(stmt_code, label_go_back, label_tail)
+                return [
+                    Instruction('label', label_go_back),
+                    *stmt_code,
+                    *expr_code,
+                    Instruction('goto_if', expr_arg, label_go_back),
+                    Instruction('label', label_tail)
+                ]
+            elif rule == 'for':
+                # for(Assign; Expr; Assign) Stmt
+                initial_code = children_codes[2]
+                condition_node = node.children[4]
+                condition_code = children_codes[4]
+                condition_arg = condition_code.properties['arg']
+                increment_code = children_codes[6]
+                stmt_code = children_codes[8]
+                label_go_back = get_label()
+                label_tail = get_label()
+                enable_jump(stmt_code, label_go_back, label_tail)
+                return [
+                    *initial_code,
+                    Instruction('label', label_go_back),
+                    *condition_code,
+                    Instruction('goto_if_false', condition_arg, label_tail),
+                    *stmt_code,
+                    *increment_code,
+                    Instruction('goto', label_go_back),
+                    Instruction('label', label_tail)
+                ]
+            elif rule == 'break':
+                return ['break']
+            elif rule == 'continue':
+                return ['continue']
+            elif rule == 'read':
+                # read ident;                
+                ident = node.children[1].properties['ident']
+                data_type = node.children[1].properties['data_type']
+                ident_arg = Argument('ident', data_type, ident)
+                return [Instruction('read', ident_arg)]
+            elif rule == 'print':
+                # print Expr;
+                expr_code = children_codes[1]
+                expr_arg = node.children[1].properties['arg']
+                return [*expr_code, Instruction('print', expr_arg)]
+            else:
+                return expand_code_list(children_codes)
+        def Assign(node, children_codes):
+            # Assign -> Var = Expr
+            ident = node.children[0].properties['ident']
+            data_type = node.children[0].properties['data_type']
+            var_arg = Argument('ident', data_type, ident)
+            expr_arg = node.children[2].properties['arg']
+            expr_code = children_codes[2]
+            return [
+                *expr_code,
+                Instruction('mov', var_arg, expr_arg)
+            ]
         def Oprand(node, children_codes):
             # Oprand -> Var | integer_value | double_value | bool_value
             data_type = node.properties['data_type']

@@ -1,3 +1,6 @@
+import sys
+
+
 CALCULATION = {
     # Arithmetic
     'plus': lambda x,y: (x + y),
@@ -22,7 +25,7 @@ CALCULATION = {
 
 OPERATION = [
     'read', 'print',
-    'label', 'goto', 'if_goto'
+    'label', 'goto', 'goto_if', 'goto_if_false'
 ]
 
 
@@ -31,7 +34,7 @@ class RuntimeError(Exception):
         self.obj = obj
         self.msg = msg
     def __str__(self):
-        return '%s\n[Error] %s' % (obj, msg)
+        return '%s\n[Error] %s' % (str(obj), msg)
 
 
 class Argument:
@@ -54,13 +57,13 @@ class Argument:
         if self.arg_type == 'data':
             return str(self.data)
         else:
-            return '%s::%s' % (self.data_type, self.ident)
+            return self.ident
 
     def val(self, var_dict):
         if self.arg_type == 'data':
             data = self.data
         else:
-            if var_dict.get(self.ident):                
+            if var_dict.get(self.ident) is not None:
                 data = var_dict[self.ident]
             else:
                 raise RuntimeError(
@@ -100,10 +103,10 @@ class Instruction:
         if self.arg2 is None:
             return '%s %s' % (self.cmd, self.arg1)
         elif self.arg3 is None:
-            return '%s %s << %s' % (self.cmd, self.arg1, self.arg2)
+            return '%s %s %s' % (self.cmd, self.arg1, self.arg2)
         else:
             return (
-                '%s %s << [%s, %s]'
+                '%s %s %s %s'
                 % (self.cmd, self.arg1, self.arg2, self.arg3)
             )
 
@@ -129,7 +132,7 @@ class Machine:
         var_dict = self.var_dict
         while i < len(instructions):
             inst = instructions[i]
-            #print(inst)
+            #print(inst, file=sys.stderr)
             inst_type = inst.inst_type
             cmd = inst.cmd
             arg1 = inst.arg1
@@ -139,7 +142,7 @@ class Machine:
                 f = CALCULATION[cmd]
                 ident = arg1.ident
                 var_dict[arg1.ident] = f(
-                    arg2.val(var_dict), arg3.val(var_dict)
+                    arg2.val(var_dict), arg3 and arg3.val(var_dict)
                 )
             elif cmd == 'read':
                 ident = arg1.ident
@@ -149,12 +152,14 @@ class Machine:
                 print(arg1.val(var_dict))
             elif cmd == 'label':
                 pass
-            elif cmd == 'goto' or 'if_goto':
+            elif cmd in ['goto', 'goto_if', 'goto_if_false']:
                 if cmd == 'goto':
                     condition = True
                     label_name = arg1
                 else:
                     condition = arg1.val(var_dict)
+                    if cmd == 'goto_if_false':
+                        condition = not condition
                     label_name = arg2
                 if condition:
                     if label_dict.get(label_name):

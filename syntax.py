@@ -4,7 +4,7 @@
 import re
 import sys
 from definition import TOKEN, SYNTAX, RULE
-from scanner import get_tokens, process_file
+from scanner import get_tokens
 
 
 def e_print(*args, **kwargs):
