@@ -3,12 +3,20 @@
 
 import sys
 from syntax import get_syntax_tree
-from machine import Instruction, Argument
+from machine import (
+    Instruction, Argument,
+    RETVAL, GETVAL, ARG_PREFIX, TEMP_PREFIX
+)
 from common import DEBUG, e_print
 
 
 LABEL_PREFIX = 'L'
-TEMP_IDENT_PREFIX = '_t'
+MAIN = 'main'
+DEFAULT_VAL = {
+    'int': Argument('data', 'int', 0),
+    'double': Argument('data', 'double', 0.0),
+    'bool': Argument('data', 'bool', False)
+}
 
 
 def translate(syntax_tree_root):
@@ -28,12 +36,17 @@ def translate(syntax_tree_root):
             return ident
         else:
             max_ident_index += 1
-            return TEMP_IDENT_PREFIX + str(max_ident_index)
+            return TEMP_PREFIX + str(max_ident_index)
     def release_ident(ident):
-        assert ident.startswith(TEMP_IDENT_PREFIX)
+        assert ident.startswith(TEMP_PREFIX)
         if not released_idents.get(ident):
             released_idents_list.append(ident)
             released_idents[ident] = True
+    def cancel_released_ident(ident):
+        if released_idents_list:
+            if ident == released_idents_list[-1]:
+                released_idents_list.pop()
+                del released_idents[ident]
     def expand_code_list(code_list):
         result = []
         for code in code_list:
@@ -41,13 +54,15 @@ def translate(syntax_tree_root):
         return result
     def synthesis_code(node):
         children_codes = [synthesis_code(child) for child in node.children]
-        if node.syntax_item == 'ParExpr':
-            # parentheses could break the order of calculation,
-            # which will cause more identifiers being required
-            ident_in_par = node.children[1].properties['arg'].ident
-            if ident_in_par == released_idents_list[-1]:                
-                released_idents_list.pop()
-                del released_idents[ident_in_par]
+        if node.syntax_item in ['ParExpr', 'VarCall']:
+            if node.syntax_item == 'ParExpr':
+                # parentheses could break the order of calculation,
+                # which will cause more identifiers being required
+                ident_in_par = node.children[1].properties['arg'].ident
+                cancel_released_ident(ident_in_par)
+            elif node.properties['var_type'] == 'call':
+                ident_of_function = node.properties['function_name']
+                cancel_released_ident(ident_of_function)
         for child in node.children:
             if (
                     not node.properties.get('include_par')
@@ -55,7 +70,7 @@ def translate(syntax_tree_root):
                 and child.properties['arg'].arg_type == 'ident'
             ):                
                 arg_ident = child.properties['arg'].ident
-                if arg_ident.startswith(TEMP_IDENT_PREFIX):
+                if arg_ident.startswith(TEMP_PREFIX):
                     release_ident(arg_ident)
         if hasattr(Produce, node.syntax_item):
             produce_code = getattr(Produce, node.syntax_item)
@@ -63,11 +78,72 @@ def translate(syntax_tree_root):
         else:
             return expand_code_list(children_codes)
     class Produce():
+        def Decl(node, children_codes):
+            data_type = node.properties['data_type']
+            ident = node.properties['ident']
+            if node.function:
+                inst_name = 'alloc'
+            else:
+                inst_name = 'static'
+            return [
+                Instruction(
+                    inst_name, data_type, ident, DEFAULT_VAL[data_type]
+                )
+            ]
+        def Function(node, children_codes):
+            # Fucntion -> def ident(ParaList) FunctionBody
+            body_code = children_codes[-1]
+            para_list = node.properties['para_list'] # ((type, ident),...)
+            para_code = []
+            i = len(para_list)-1
+            while i >= 0:
+                para = para_list[i]
+                para_code.append(
+                    Instruction('alloc', *para, DEFAULT_VAL[para[0]])
+                )
+                para_code.append(
+                    Instruction(
+                        'mov',
+                        Argument('ident', *para),
+                        Argument('ident', para[0], ARG_PREFIX+str(i))
+                    )
+                )
+                i = i - 1
+            name = node.properties['name']
+            if name == MAIN:
+                start_code = [Instruction('start')]
+                return_code = [Instruction('exit')]
+            else:
+                start_code = []
+                return_code = [Instruction('ret')]
+            return_type = node.properties['return_type']
+            if return_type != 'void':
+                retval_code = [
+                    Instruction(
+                        'alloc', return_type, RETVAL, DEFAULT_VAL[return_type]
+                    )
+                ]
+            else:
+                retval_code = []
+            return [
+                Instruction('proc', name),
+                *start_code,
+                *para_code,
+                *retval_code,
+                *body_code,
+                *return_code,
+                Instruction('end', name)
+            ]
+        def ReturnValue(node, children_codes):
+            # ReturnValue -> ; | Expr;
+            if node.deriv_tuple[0] == 'Expr':
+                node.properties['arg'] = node.children[0].properties['arg']
+            return expand_code_list(children_codes)
         def Stmt(node, children_codes):
-            # Stmt -> Assign; | read ident; | print Expr;
+            # Stmt -> Assign; | read Var; | print Expr; | eval Expr;
             #         if(Expr) Stmt Else | while(Expr) Stmt |
             #         do Stmt while(Expr); | for(Assign; Expr; Assign) Stmt |
-            #         break; | continue; | Block
+            #         break; | continue; | return ReturnValue | Block
             def enable_jump(code, continue_label, break_label):
                 for i in range(0, len(code)):
                     if code[i] == 'continue':
@@ -153,8 +229,23 @@ def translate(syntax_tree_root):
             elif rule == 'continue':
                 # to be handled in enable_jump()
                 return ['continue']
+            elif rule == 'return':
+                code = []
+                data_type = node.children[1].properties['data_type']
+                if data_type != 'void':
+                    retval_arg = Argument('ident', data_type, RETVAL)
+                    expr_arg = node.children[1].properties['arg']
+                    expr_code = children_codes[1]
+                    code = [*code, *expr_code]
+                    code.append(Instruction('mov', retval_arg, expr_arg))
+                assert node.function
+                if node.function.properties['name'] == MAIN: 
+                    code.append(Instruction('exit'))
+                else:
+                    code.append(Instruction('ret'))
+                return code
             elif rule == 'read':
-                # read ident;                
+                # read Var;
                 ident = node.children[1].properties['ident']
                 data_type = node.children[1].properties['data_type']
                 ident_arg = Argument('ident', data_type, ident)
@@ -181,12 +272,71 @@ def translate(syntax_tree_root):
             # Oprand -> Var | integer_value | double_value | bool_value
             data_type = node.properties['data_type']
             child = node.children[0]
-            if node.deriv_tuple[0] == 'Var':
-                arg = Argument('ident', data_type, child.properties['ident'])
+            if node.deriv_tuple[0] == 'VarCall':
+                arg = node.children[0].properties['arg']
             else:
                 arg = Argument('data', data_type, child.token.string)
             node.properties['arg'] = arg
-            return []
+            return expand_code_list(children_codes)
+        def VarCall(node, children_codes):
+            # VarCall -> ident VarCallRight
+            code = []
+            ident = node.children[0].token.string
+            var_type = node.properties['var_type']
+            data_type = node.properties['data_type']
+            if var_type == 'var':                
+                arg = Argument('ident', data_type, ident)
+            elif var_type == 'array':
+                # todo: array
+                pass
+            elif var_type == 'call':
+                arglist_code = children_codes[1]
+                code = [*code, *arglist_code]
+                code.append(Instruction('call', ident))
+                if data_type != 'void':
+                    getval = Argument('ident', data_type, GETVAL)
+                    arg = Argument('ident', data_type, get_ident())
+                    code.append(Instruction('mov', arg, getval))
+                else:
+                    arg = None
+            else:
+                assert False
+            node.properties['arg'] = arg
+            return code
+        def ArgList(node, children_codes):
+            # ArgList -> Expr ArgListRight
+            if not node.children:
+                return []
+            result_code = []
+            expr_node = node.children[0]
+            right = node.children[-1]
+            arg = expr_node.properties['arg']
+            code = children_codes[0]
+            args = node.properties['args'] = [arg, *right.properties['args']]
+            codes = [[*code], *children_codes[-1]]
+            types = node.properties['arg_types']
+            for i in range(0, len(args)):
+                result_code.append(
+                    *codes[i],
+                    Instruction(
+                        'override',
+                        Argument('ident', types[i], ARG_PREFIX+str(i)),
+                        args[i]
+                    )
+                )
+            return result_code
+        def ArgListRight(node, children_codes):
+            # ArgListRight -> "" | ,Expr ArgListRight
+            if not node.children:
+                node.properties['args'] = []
+                return []
+            else:
+                expr_node = node.children[1]
+                right = node.children[-1]
+                arg = expr_node.properties['arg']
+                code = children_codes[1]
+                node.properties['args'] = [arg, *right.properties['args']]
+                return [[*code], *children_codes[-1]]
         def ParExpr(node, children_codes):
             # ParExpr -> (Expr)
             node.properties['arg'] = node.children[1].properties['arg']

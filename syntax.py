@@ -31,12 +31,16 @@ class SyntaxTreeNode:
     properties = None # dict
     parent = None
     token = None
+    function = None
     processed = False
     deriv_tuple = ()
     def __init__(self, syntax_item):
         self.syntax_item = syntax_item
         self.children = []
-        self.properties = {'data_type': None, 'arg': None}
+        self.properties = {}
+        if syntax_item == 'Function':
+            self.function = self
+            self.properties['symbols'] = {}
 
     def get_type(self):
         return get_syntax_item_type(self.syntax_item)
@@ -60,7 +64,7 @@ class SyntaxTreeNode:
             self.processed = True
             if self.parent:
                 self.parent.check_processed()
-        if item_type == 'token-type':
+        if item_type == 'token_type':
             if token.token_type == self.syntax_item:
                 match()
                 return True
@@ -84,6 +88,8 @@ class SyntaxTreeNode:
         for item in reversed(derivation_tuple):
             new_node = SyntaxTreeNode(item)
             new_node.parent = self
+            if self.function:
+                new_node.function = self.function
             self.children.insert(0, new_node)
             yield new_node
 
@@ -94,13 +100,13 @@ def get_syntax_item_type(string):
     else:
         for token_type, regex in TOKEN:
             if string == token_type:
-                return 'token-type'            
+                return 'token_type'            
         return 'string'
 
 
 def get_syntax_tree(code):
-    root = SyntaxTreeNode('Start')
-    symbols = {}
+    root = SyntaxTreeNode('Program')
+    symbols = {'_functions': {}}
     syntax_stack = []
     syntax_stack.append(root)
     
@@ -119,6 +125,8 @@ def get_syntax_tree(code):
                     if node.parent:
                         set_properties(node.parent)
         e_print('-- Processing Token ' + str(token))
+        if not syntax_stack:
+            raise InvalidSyntaxException(token.coor)
         current_node = syntax_stack.pop()
         def push_children(deriv_tuple):
             for child in current_node.produce_children_reversed(deriv_tuple):
@@ -131,11 +139,22 @@ def get_syntax_tree(code):
             )
             syntax = SYNTAX[current_node.syntax_item]
             expanded = False
+            skip = False
+            if syntax.get('follow'):
+                 follow = syntax['follow']
+                 if get_syntax_item_type(follow) == 'token_type':
+                     if follow == token.token_type:
+                         skip = True
+                 else:
+                     if follow == token.string:
+                         skip = True
             for first, deriv_tuple in syntax['derivations']:
+                if skip:
+                    break
                 if first == 'ANY':
                     expanded = True
                 else:
-                    if get_syntax_item_type(first) == 'token-type':
+                    if get_syntax_item_type(first) == 'token_type':
                         if first == token.token_type:
                             expanded = True                    
                     else:
