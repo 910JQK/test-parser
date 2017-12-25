@@ -54,21 +54,15 @@ def translate(syntax_tree_root):
         return result
     def synthesis_code(node):
         children_codes = [synthesis_code(child) for child in node.children]
-        if node.syntax_item in ['ParExpr', 'VarCall']:
-            if node.syntax_item == 'ParExpr':
-                # parentheses could break the order of calculation,
-                # which will cause more identifiers being required
-                ident_in_par = node.children[1].properties['arg'].ident
-                cancel_released_ident(ident_in_par)
-            elif node.properties['var_type'] == 'call':
-                ident_of_function = node.properties['function_name']
-                cancel_released_ident(ident_of_function)
         for child in node.children:
             if (
-                    not node.properties.get('include_par')
+                    not child.properties.get('keep_temp')
                 and child.properties.get('arg')
                 and child.properties['arg'].arg_type == 'ident'
-            ):                
+            ):
+                # parentheses and function calls could
+                # break the order of calculation,
+                # which will cause more identifiers being required
                 arg_ident = child.properties['arg'].ident
                 if arg_ident.startswith(TEMP_PREFIX):
                     release_ident(arg_ident)
@@ -78,6 +72,12 @@ def translate(syntax_tree_root):
         else:
             return expand_code_list(children_codes)
     class Produce():
+        def Program(node, children_codes):
+            return [
+                *expand_code_list(children_codes),
+                Instruction('start'),
+                Instruction('call', MAIN)
+            ]
         def Decl(node, children_codes):
             data_type = node.properties['data_type']
             ident = node.properties['ident']
@@ -111,10 +111,8 @@ def translate(syntax_tree_root):
                 i = i - 1
             name = node.properties['name']
             if name == MAIN:
-                start_code = [Instruction('start')]
                 return_code = [Instruction('exit')]
             else:
-                start_code = []
                 return_code = [Instruction('ret')]
             return_type = node.properties['return_type']
             if return_type != 'void':
@@ -127,7 +125,6 @@ def translate(syntax_tree_root):
                 retval_code = []
             return [
                 Instruction('proc', name),
-                *start_code,
                 *para_code,
                 *retval_code,
                 *body_code,
@@ -316,14 +313,15 @@ def translate(syntax_tree_root):
             codes = [[*code], *children_codes[-1]]
             types = node.properties['arg_types']
             for i in range(0, len(args)):
-                result_code.append(
+                result_code = [
+                    *result_code,
                     *codes[i],
                     Instruction(
                         'override',
                         Argument('ident', types[i], ARG_PREFIX+str(i)),
                         args[i]
                     )
-                )
+                ]
             return result_code
         def ArgListRight(node, children_codes):
             # ArgListRight -> "" | ,Expr ArgListRight
@@ -366,7 +364,10 @@ def translate(syntax_tree_root):
             # Xxx -> Item XxxRight
             # XxxRight -> Op Item XxxRight
             code = []
-            if right.children:
+            if (
+                    right.children
+#                and right.children[].syntax_item.startswith(node.syntax_item)
+            ):
                 op = right.properties['op']
                 right_arg = right.properties['arg']
                 left_arg = left.properties['arg']

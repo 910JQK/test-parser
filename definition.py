@@ -85,12 +85,19 @@ SYNTAX = {
             (',', (',', 'Type', 'ident', 'ParaListRight'))
         ]
     },
-    # FunctionBody -> {"", -> Type} { Decls Stmts }
+    # FunctionBody -> {"", FunctionType} { Decls Stmts }
     'FunctionBody': {
         'empty': False,
         'derivations': [
             ('{', ('{', 'Decls', 'Stmts', '}')),
-            ('->', ('->', 'Type', '{', 'Decls', 'Stmts', '}'))
+            ('->', ('FunctionType', '{', 'Decls', 'Stmts', '}'))
+        ]
+    },
+    # FunctionType -> -> Type
+    'FunctionType': {
+        'empty': False,
+        'derivations': [
+            ('ANY', ('->', 'Type'))
         ]
     },
     # Block -> { Stmts }
@@ -242,11 +249,11 @@ SYNTAX = {
             ('ANY', ('Join', 'ExprRight'))
         ]
     },
-    # ExprRight -> "" | || Join
+    # ExprRight -> "" | || Join ExprRight
     'ExprRight': {
         'empty': True,
         'derivations': [
-            ('||', ('||', 'Join'))
+            ('||', ('||', 'Join', 'ExprRight'))
         ]
     },
     # Join -> Equality JoinRight
@@ -433,12 +440,12 @@ class RULE:
             # todo: array
             pass
         elif var_type == 'call':
+            node.properties['keep_temp'] = True
             if symbols['_functions'].get(ident):
                 function_info = symbols['_functions'][ident]
                 arg_types = node.children[1].properties['arg_types']
                 if function_info['parameters'] == arg_types:
                     node.properties['function_name'] = ident
-                    node.properties['include_par'] = True
                     node.properties['data_type'] = function_info['return_type']
                 else:
                     return Check.Error(
@@ -508,18 +515,17 @@ class RULE:
         var_or_val = node.children[0]
         if deriv_tuple[0] == 'VarCall':
             data_type = var_or_val.properties['data_type']
+            node.properties['keep_temp'] = True
         else:
             data_type = token2data[var_or_val.token.token_type]
-        if var_or_val.properties.get('include_par'):
-            node.properties['include_par'] = True
         node.properties['data_type'] = data_type
         return Check.Pass()
 
     def ParExpr(symbols, node):        
         # ParExpr -> (Expr)
-        expr = node.children[1]
+        expr = node.children[1]        
         node.properties['data_type'] = expr.properties['data_type']
-        node.properties['include_par'] = True
+        node.properties['keep_temp'] = True
         return Check.Pass()
 
     def Unary(symbols, node):
@@ -543,8 +549,9 @@ class RULE:
                 else: # int or bool
                     data_type = 'int'
         node.properties['data_type'] = data_type
-        if oprand.properties.get('include_par'):
-            node.properties['include_par'] = True
+        if op in ['Oprand', 'ParExpr']:
+            if oprand.properties.get('keep_temp'):
+                node.properties['keep_temp'] = True
         return Check.Pass()
 
     # Reuse Function
@@ -564,6 +571,8 @@ class RULE:
                     data_type = 'int'
                 else:
                     data_type = item.properties['data_type']
+            if item.properties.get('keep_temp'):
+                node.properties['keep_temp'] = True
         node.properties['data_type'] = data_type
         return Check.Pass()    
  
@@ -603,9 +612,19 @@ class RULE:
             item = node.children[0]
             right = node.children[1]
             if right.children:
-                node.properties['data_type'] = 'bool'
+                item_type = item.properties['data_type']
+                right_type = right.children[1].properties['data_type']
+                if right_type == 'void' or item_type == 'void':
+                    node.properties['data_type'] = 'void'
+                else:
+                    node.properties['data_type'] = 'bool'
+                item.properties['keep_temp'] = True
+                right.properties['keep_temp'] = True
+                node.properties['keep_temp'] = True
             else:
                 node.properties['data_type'] = item.properties['data_type']
+                if item.properties.get('keep_temp'):
+                    node.properties['keep_temp'] = True
         return Check.Pass()
 
     def Rel(symbols, node):
@@ -622,6 +641,8 @@ class RULE:
 
     def Expr(symbols, node):
         # Expr -> Join ExprRight
+        if node.parent.syntax_item == 'ParExpr':
+            node.properties['keep_temp'] = True
         check = RULE.SetBoolType(node)
         if check:
             assert node.parent.deriv_tuple
@@ -682,10 +703,18 @@ class RULE:
         return Check.Pass()
 
     def FunctionBody(symbols, node):
-        # FunctionBody -> {"", -> Type} { Decls Stmts }
+        # FunctionBody -> {"", FunctionType} { Decls Stmts }
         if node.deriv_tuple[0] == '->':
-            data_type = node.children[1].properties['data_type']
-            node.properties['return_type'] = data_type
+            f_type = node.children[0]
+            node.properties['return_type'] = f_type.properties['return_type']
+        return Check.Pass()
+
+    def FunctionType(symbols, node):
+        # FunctionType -> -> Type
+        data_type = node.children[1].properties['data_type']
+        node.properties['return_type'] = data_type
+        name = node.function.children[1].token.string
+        symbols['_functions'][name]['return_type'] = data_type
         return Check.Pass()
 
     def Function(symbols, node):
@@ -704,13 +733,8 @@ class RULE:
         node.properties['name'] = name
         node.properties['para_list'] = para_list
         node.properties['return_type'] = detect_type
-        if not symbols['_functions'].get(name):
-            symbols['_functions'][name] = {
-                'return_type': detect_type,
-                'parameters': tuple(p[0] for p in para_list)
-            }
-        else:
-            return Check.Error('Function %s: Duplicate definition' % name)
+        assert symbols['_functions'].get(name)
+        symbols['_functions'][name]['return_type'] = detect_type
         return Check.Pass()
         
     def ParaListRight(symbols, node):
@@ -731,16 +755,24 @@ class RULE:
     def ParaList(symbols, node):
         # ParaList -> Type ident ParaListRight
         if not node.children:
-            node.properties['para_list'] = ()
-            return Check.Pass()
-        data_type = node.children[0].properties['data_type']
-        ident = node.children[1].token.string
-        right = node.children[-1]
-        para_list = (
-            (data_type, ident),
-            *right.properties['para_list']
-        )
+            para_list = ()
+        else:
+            data_type = node.children[0].properties['data_type']
+            ident = node.children[1].token.string
+            right = node.children[-1]
+            para_list = (
+                (data_type, ident),
+                *right.properties['para_list']
+            )
         node.properties['para_list'] = para_list
         for para_type, para_name in para_list:
             node.function.properties['symbols'][para_name] = para_type
+        name = node.function.children[1].token.string
+        if not symbols['_functions'].get(name):
+            symbols['_functions'][name] = {
+                'parameters': tuple(p[0] for p in para_list)
+            }
+        else:
+            return Check.Error('Function %s: Duplicate definition' % name)
         return Check.Pass()
+
