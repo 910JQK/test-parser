@@ -66,7 +66,6 @@ def translate(syntax_tree_root):
             if hasattr(arg, 'arg_type'):
                 if arg.arg_type == 'ident':
                     if arg.ident.startswith(TEMP_PREFIX):
-                        print('DEBUG %s %s' % (cmd, arg.ident))
                         release_ident(arg.ident)
             first = False
         return Instruction(cmd, *args)
