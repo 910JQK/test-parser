@@ -440,7 +440,6 @@ class RULE:
             # todo: array
             pass
         elif var_type == 'call':
-            node.properties['keep_temp'] = True
             if symbols['_functions'].get(ident):
                 function_info = symbols['_functions'][ident]
                 arg_types = node.children[1].properties['arg_types']
@@ -515,7 +514,6 @@ class RULE:
         var_or_val = node.children[0]
         if deriv_tuple[0] == 'VarCall':
             data_type = var_or_val.properties['data_type']
-            node.properties['keep_temp'] = True
         else:
             data_type = token2data[var_or_val.token.token_type]
         node.properties['data_type'] = data_type
@@ -525,7 +523,6 @@ class RULE:
         # ParExpr -> (Expr)
         expr = node.children[1]        
         node.properties['data_type'] = expr.properties['data_type']
-        node.properties['keep_temp'] = True
         return Check.Pass()
 
     def Unary(symbols, node):
@@ -549,9 +546,6 @@ class RULE:
                 else: # int or bool
                     data_type = 'int'
         node.properties['data_type'] = data_type
-        if op in ['Oprand', 'ParExpr']:
-            if oprand.properties.get('keep_temp'):
-                node.properties['keep_temp'] = True
         return Check.Pass()
 
     # Reuse Function
@@ -571,8 +565,6 @@ class RULE:
                     data_type = 'int'
                 else:
                     data_type = item.properties['data_type']
-            if item.properties.get('keep_temp'):
-                node.properties['keep_temp'] = True
         node.properties['data_type'] = data_type
         return Check.Pass()    
  
@@ -618,13 +610,8 @@ class RULE:
                     node.properties['data_type'] = 'void'
                 else:
                     node.properties['data_type'] = 'bool'
-                item.properties['keep_temp'] = True
-                right.properties['keep_temp'] = True
-                node.properties['keep_temp'] = True
             else:
                 node.properties['data_type'] = item.properties['data_type']
-                if item.properties.get('keep_temp'):
-                    node.properties['keep_temp'] = True
         return Check.Pass()
 
     def Rel(symbols, node):
@@ -641,8 +628,6 @@ class RULE:
 
     def Expr(symbols, node):
         # Expr -> Join ExprRight
-        if node.parent.syntax_item == 'ParExpr':
-            node.properties['keep_temp'] = True
         check = RULE.SetBoolType(node)
         if check:
             assert node.parent.deriv_tuple

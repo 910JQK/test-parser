@@ -4,7 +4,7 @@
 import sys
 from syntax import get_syntax_tree
 from machine import (
-    Instruction, Argument,
+    Instruction, Argument, CALCULATION,
     RETVAL, GETVAL, ARG_PREFIX, TEMP_PREFIX
 )
 from common import DEBUG, e_print
@@ -52,20 +52,26 @@ def translate(syntax_tree_root):
         for code in code_list:
             result += code
         return result
+    def new_inst(cmd, *args):
+        # parentheses and function calls could
+        # break the order of calculation,
+        # which will cause more identifiers being required
+        # release a ident when the temp variable is used
+        first = True
+        for arg in args:
+            if first:
+                if cmd in ['mov', 'override', *CALCULATION]:
+                    first = False
+                    continue
+            if hasattr(arg, 'arg_type'):
+                if arg.arg_type == 'ident':
+                    if arg.ident.startswith(TEMP_PREFIX):
+                        print('DEBUG %s %s' % (cmd, arg.ident))
+                        release_ident(arg.ident)
+            first = False
+        return Instruction(cmd, *args)
     def synthesis_code(node):
         children_codes = [synthesis_code(child) for child in node.children]
-        for child in node.children:
-            if (
-                    not child.properties.get('keep_temp')
-                and child.properties.get('arg')
-                and child.properties['arg'].arg_type == 'ident'
-            ):
-                # parentheses and function calls could
-                # break the order of calculation,
-                # which will cause more identifiers being required
-                arg_ident = child.properties['arg'].ident
-                if arg_ident.startswith(TEMP_PREFIX):
-                    release_ident(arg_ident)
         if hasattr(Produce, node.syntax_item):
             produce_code = getattr(Produce, node.syntax_item)
             return produce_code(node, children_codes)
@@ -75,8 +81,8 @@ def translate(syntax_tree_root):
         def Program(node, children_codes):
             return [
                 *expand_code_list(children_codes),
-                Instruction('start'),
-                Instruction('call', MAIN)
+                new_inst('start'),
+                new_inst('call', MAIN)
             ]
         def Decl(node, children_codes):
             data_type = node.properties['data_type']
@@ -86,7 +92,7 @@ def translate(syntax_tree_root):
             else:
                 inst_name = 'static'
             return [
-                Instruction(
+                new_inst(
                     inst_name, data_type, ident, DEFAULT_VAL[data_type]
                 )
             ]
@@ -99,10 +105,10 @@ def translate(syntax_tree_root):
             while i >= 0:
                 para = para_list[i]
                 para_code.append(
-                    Instruction('alloc', *para, DEFAULT_VAL[para[0]])
+                    new_inst('alloc', *para, DEFAULT_VAL[para[0]])
                 )
                 para_code.append(
-                    Instruction(
+                    new_inst(
                         'mov',
                         Argument('ident', *para),
                         Argument('ident', para[0], ARG_PREFIX+str(i))
@@ -111,25 +117,25 @@ def translate(syntax_tree_root):
                 i = i - 1
             name = node.properties['name']
             if name == MAIN:
-                return_code = [Instruction('exit')]
+                return_code = [new_inst('exit')]
             else:
-                return_code = [Instruction('ret')]
+                return_code = [new_inst('ret')]
             return_type = node.properties['return_type']
             if return_type != 'void':
                 retval_code = [
-                    Instruction(
+                    new_inst(
                         'alloc', return_type, RETVAL, DEFAULT_VAL[return_type]
                     )
                 ]
             else:
                 retval_code = []
             return [
-                Instruction('proc', name),
-                *para_code,
+                new_inst('proc', name),
                 *retval_code,
+                *para_code,
                 *body_code,
                 *return_code,
-                Instruction('end', name)
+                new_inst('end', name)
             ]
         def ReturnValue(node, children_codes):
             # ReturnValue -> ; | Expr;
@@ -144,9 +150,9 @@ def translate(syntax_tree_root):
             def enable_jump(code, continue_label, break_label):
                 for i in range(0, len(code)):
                     if code[i] == 'continue':
-                        code[i] = Instruction('goto', continue_label)
+                        code[i] = new_inst('goto', continue_label)
                     elif code[i] == 'break':
-                        code[i] = Instruction('goto', break_label)
+                        code[i] = new_inst('goto', break_label)
             rule = node.deriv_tuple[0]
             if rule == 'if':
                 # if(Expr) Stmt Else
@@ -159,12 +165,12 @@ def translate(syntax_tree_root):
                 label_post_else = get_label()
                 return [
                     *expr_code,
-                    Instruction('goto_if_false', expr_arg, label_pre_else),
+                    new_inst('goto_if_false', expr_arg, label_pre_else),
                     *stmt_code,
-                    Instruction('goto', label_post_else),
-                    Instruction('label', label_pre_else),
+                    new_inst('goto', label_post_else),
+                    new_inst('label', label_pre_else),
                     *else_code,
-                    Instruction('label', label_post_else)
+                    new_inst('label', label_post_else)
                 ]
             elif rule == 'while':
                 # while(Expr) Stmt
@@ -176,12 +182,12 @@ def translate(syntax_tree_root):
                 label_tail = get_label()
                 enable_jump(stmt_code, label_go_back, label_tail)
                 return [
-                    Instruction('label', label_go_back),
+                    new_inst('label', label_go_back),
                     *expr_code,
-                    Instruction('goto_if_false', expr_arg, label_tail),
+                    new_inst('goto_if_false', expr_arg, label_tail),
                     *stmt_code,
-                    Instruction('goto', label_go_back),
-                    Instruction('label', label_tail)
+                    new_inst('goto', label_go_back),
+                    new_inst('label', label_tail)
                 ]
             elif rule == 'do':
                 # do Stmt while(Expr);
@@ -193,11 +199,11 @@ def translate(syntax_tree_root):
                 label_tail = get_label()
                 enable_jump(stmt_code, label_go_back, label_tail)
                 return [
-                    Instruction('label', label_go_back),
+                    new_inst('label', label_go_back),
                     *stmt_code,
                     *expr_code,
-                    Instruction('goto_if', expr_arg, label_go_back),
-                    Instruction('label', label_tail)
+                    new_inst('goto_if', expr_arg, label_go_back),
+                    new_inst('label', label_tail)
                 ]
             elif rule == 'for':
                 # for(Assign; Expr; Assign) Stmt
@@ -212,13 +218,13 @@ def translate(syntax_tree_root):
                 enable_jump(stmt_code, label_go_back, label_tail)
                 return [
                     *initial_code,
-                    Instruction('label', label_go_back),
+                    new_inst('label', label_go_back),
                     *condition_code,
-                    Instruction('goto_if_false', condition_arg, label_tail),
+                    new_inst('goto_if_false', condition_arg, label_tail),
                     *stmt_code,
                     *increment_code,
-                    Instruction('goto', label_go_back),
-                    Instruction('label', label_tail)
+                    new_inst('goto', label_go_back),
+                    new_inst('label', label_tail)
                 ]
             elif rule == 'break':
                 # to be handled in enable_jump()
@@ -234,24 +240,24 @@ def translate(syntax_tree_root):
                     expr_arg = node.children[1].properties['arg']
                     expr_code = children_codes[1]
                     code = [*code, *expr_code]
-                    code.append(Instruction('mov', retval_arg, expr_arg))
+                    code.append(new_inst('mov', retval_arg, expr_arg))
                 assert node.function
                 if node.function.properties['name'] == MAIN: 
-                    code.append(Instruction('exit'))
+                    code.append(new_inst('exit'))
                 else:
-                    code.append(Instruction('ret'))
+                    code.append(new_inst('ret'))
                 return code
             elif rule == 'read':
                 # read Var;
                 ident = node.children[1].properties['ident']
                 data_type = node.children[1].properties['data_type']
                 ident_arg = Argument('ident', data_type, ident)
-                return [Instruction('read', ident_arg)]
+                return [new_inst('read', ident_arg)]
             elif rule == 'print':
                 # print Expr;
                 expr_code = children_codes[1]
                 expr_arg = node.children[1].properties['arg']
-                return [*expr_code, Instruction('print', expr_arg)]
+                return [*expr_code, new_inst('print', expr_arg)]
             else:
                 return expand_code_list(children_codes)
         def Assign(node, children_codes):
@@ -263,7 +269,7 @@ def translate(syntax_tree_root):
             expr_code = children_codes[2]
             return [
                 *expr_code,
-                Instruction('mov', var_arg, expr_arg)
+                new_inst('mov', var_arg, expr_arg)
             ]
         def Oprand(node, children_codes):
             # Oprand -> Var | integer_value | double_value | bool_value
@@ -289,11 +295,11 @@ def translate(syntax_tree_root):
             elif var_type == 'call':
                 arglist_code = children_codes[1]
                 code = [*code, *arglist_code]
-                code.append(Instruction('call', ident))
+                code.append(new_inst('call', ident))
                 if data_type != 'void':
                     getval = Argument('ident', data_type, GETVAL)
                     arg = Argument('ident', data_type, get_ident())
-                    code.append(Instruction('mov', arg, getval))
+                    code.append(new_inst('mov', arg, getval))
                 else:
                     arg = None
             else:
@@ -316,7 +322,7 @@ def translate(syntax_tree_root):
                 result_code = [
                     *result_code,
                     *codes[i],
-                    Instruction(
+                    new_inst(
                         'override',
                         Argument('ident', types[i], ARG_PREFIX+str(i)),
                         args[i]
@@ -351,11 +357,11 @@ def translate(syntax_tree_root):
             elif op == '-':
                 temp = Argument('ident', data_type, get_ident())
                 zero = Argument('data', data_type, 0)                
-                code.append(Instruction('minus', temp, zero, oprand_arg))
+                code.append(new_inst('minus', temp, zero, oprand_arg))
                 node.properties['arg'] = temp
             elif op == '!':
                 temp = Argument('ident', data_type, get_ident())
-                code.append(Instruction('not', temp, oprand_arg))
+                code.append(new_inst('not', temp, oprand_arg))
                 node.properties['arg'] = temp
             else:
                 assert False
@@ -374,7 +380,7 @@ def translate(syntax_tree_root):
                 data_type = node.properties['data_type']
                 temp = Argument('ident', data_type, get_ident())
                 code.append(
-                    Instruction(inst_of_op[op], temp, left_arg, right_arg)
+                    new_inst(inst_of_op[op], temp, left_arg, right_arg)
                 )
                 node.properties['arg'] = temp
                 if node.deriv_tuple[0] in inst_of_op:
