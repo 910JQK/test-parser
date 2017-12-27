@@ -15,13 +15,14 @@ The program is built by 6 parts:
 
 The language supports these features:
 
-- ✅ Arithmetic operation for integer and  double
+- ✅ Arithmetic operations for integer and  double
+- ✅ Logical operations for bool
 - ✅ Conditional clauses such as if, while, do, for
 - ✅ Function definition and call with or without arguments
 - ✅ Recursive function call
 - ✅ Input and output for numbers
 
-But does not support these features:
+But does **NOT** support these features:
 
 - ❌ OOP
 - ❌ Array
